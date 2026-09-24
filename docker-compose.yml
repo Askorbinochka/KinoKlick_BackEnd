@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: cinoclick-api
+    ports:
+      - "3000:3000"
+    volumes:
+      # Прокидаємо код для hot-reload
+      - .:/usr/src/app
+      # Ігноруємо локальні node_modules
+      - /usr/src/app/node_modules
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: cinoclick-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-cinoclick_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: cinoclick-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:
