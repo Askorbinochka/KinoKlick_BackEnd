@@ -8,7 +8,13 @@ import { SessionsModule } from './sessions/sessions.module.js';
 import { TicketsModule } from './tickets/tickets.module.js';
 
 @Module({
-  imports: [PrismaModule, AuthModule, MoviesModule, SessionsModule, TicketsModule],
+  imports: [
+    PrismaModule,
+    AuthModule,
+    MoviesModule,
+    SessionsModule,
+    TicketsModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })

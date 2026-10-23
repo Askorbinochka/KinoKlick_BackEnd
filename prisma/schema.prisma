@@ -1,13 +1,178 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+  MODERATOR
+}
+
+enum SeatType {
+  STANDARD
+  VIP
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  firstName String?
+  lastName  String?
+  phone     String?
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings  Booking[]
+  orders    Order[]
+}
+
+model Cinema {
+  id        String   @id @default(uuid())
+  name      String
+  city      String
+  address   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  halls     Hall[]
+}
+
+model Hall {
+  id        String   @id @default(uuid())
+  name      String
+  cinemaId  String
+  cinema    Cinema   @relation(fields: [cinemaId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  seats     Seat[]
+  sessions  Session[]
+}
+
+model Seat {
+  id        String   @id @default(uuid())
+  row       Int
+  number    Int
+  type      SeatType @default(STANDARD)
+  hallId    String
+  hall      Hall     @relation(fields: [hallId], references: [id], onDelete: Cascade)
+
+  tickets   Ticket[]
+  bookings  BookingSeat[]
+
+  @@unique([hallId, row, number])
+}
+
+model Movie {
+  id             String   @id @default(uuid())
+  title          String
+  description    String?
+  posterUrl      String?
+  genres         String[]
+  duration       Int      // in minutes
+  rating         Float?
+  trailerUrl     String?
+  director       String?
+  language       String?
+  ageRestriction Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  sessions       Session[]
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  startTime DateTime
+  movieId   String
+  movie     Movie    @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  hallId    String
+  hall      Hall     @relation(fields: [hallId], references: [id], onDelete: Cascade)
+  price     Float    @default(0.0) // base price
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings  Booking[]
+  tickets   Ticket[]
+}
+
+model Booking {
+  id        String   @id @default(uuid())
+  userId    String?  // nullable — guest checkout supported
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  status    BookingStatus @default(PENDING)
+  expiresAt DateTime // Booking valid for 10-15 mins
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  seats     BookingSeat[]
+  order     Order?
+}
+
+model BookingSeat {
+  id        String  @id @default(uuid())
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  seatId    String
+  seat      Seat    @relation(fields: [seatId], references: [id], onDelete: Cascade)
+  
+  @@unique([bookingId, seatId])
+}
+
+model Ticket {
+  id        String   @id @default(uuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  seatId    String
+  seat      Seat     @relation(fields: [seatId], references: [id], onDelete: Cascade)
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  price     Float
+  qrCode    String?  @unique
+  createdAt DateTime @default(now())
+
+  // A seat can only have one ticket per session
+  @@unique([sessionId, seatId])
+}
+
+model Order {
+  id            String   @id @default(uuid())
+  userId        String?  // nullable — guest checkout supported
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  bookingId     String?  @unique
+  booking       Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  totalAmount   Float
+  status        OrderStatus @default(PENDING)
+  customerName  String?
+  customerEmail String?
+  customerPhone String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tickets       Ticket[]
 }
