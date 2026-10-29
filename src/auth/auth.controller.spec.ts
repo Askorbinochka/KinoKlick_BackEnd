@@ -1,5 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { AuthController } from './auth.controller.js';
+import { AuthService } from './auth.service.js';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -7,6 +9,16 @@ describe('AuthController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
+      providers: [
+        {
+          provide: AuthService,
+          useValue: {
+            register: vi.fn(),
+            login: vi.fn(),
+            validateUser: vi.fn(),
+          },
+        },
+      ],
     }).compile();
 
     controller = module.get<AuthController>(AuthController);
