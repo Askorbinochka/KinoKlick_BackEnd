@@ -16,8 +16,8 @@ export class AuthService {
     private prisma: PrismaService,
     private jwt: JwtService,
   ) {}
-  private async _signToken(userId: string, email: string) {
-    const payload = { sub: userId, email };
+  private async _signToken(userId: string, email: string, role: string) {
+    const payload = { sub: userId, email, role };
     const token = await this.jwt.signAsync(payload);
     return { access_token: token };
   }
@@ -34,7 +34,7 @@ export class AuthService {
       data: { ...dto, password: hashPassword },
     });
 
-    return this._signToken(user.id, user.email);
+    return this._signToken(user.id, user.email, user.role);
   }
 
   async LoginUser(dto: LoginDto) {
@@ -46,6 +46,28 @@ export class AuthService {
     const isMatch = await bcrypt.compare(dto.password, user.password);
     if (!isMatch) throw new UnauthorizedException('Невірний пароль');
 
-    return this._signToken(user.id, user.email);
+    return this._signToken(user.id, user.email, user.role);
+  }
+
+  async getMe(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Користувача не знайдено');
+    }
+
+    return user;
   }
 }
