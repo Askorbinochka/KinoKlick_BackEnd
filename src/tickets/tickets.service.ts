@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import QRCode from 'qrcode';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ConfirmBookingDto } from './dto/confirm-booking.dto.js';
 import { CreateBookingDto } from './dto/create-booking.dto.js';
@@ -167,15 +168,49 @@ export class TicketsService {
         data: { status: 'CONFIRMED' },
       });
 
+      const ticketsWithQr = await Promise.all(
+        tickets.map(async (t) => ({
+          ...t,
+          qrCodeImage: t.qrCode
+            ? await this.generateQrCodeDataUrl(t.qrCode)
+            : null,
+        })),
+      );
+
       return {
         order,
-        tickets,
+        tickets: ticketsWithQr,
       };
     });
   }
 
+  async generateQrCodeDataUrl(text: string): Promise<string> {
+    return QRCode.toDataURL(text, {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 256,
+    });
+  }
+
+  async getTicketQrCodeBuffer(ticketId: string): Promise<Buffer> {
+    const ticket = await this.prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: { qrCode: true },
+    });
+
+    if (!ticket || !ticket.qrCode) {
+      throw new NotFoundException(`Квиток з id "${ticketId}" не знайдено`);
+    }
+
+    return QRCode.toBuffer(ticket.qrCode, {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 300,
+    });
+  }
+
   async getMyTickets(userId: string) {
-    return this.prisma.ticket.findMany({
+    const tickets = await this.prisma.ticket.findMany({
       where: {
         order: { userId },
       },
@@ -197,6 +232,15 @@ export class TicketsService {
         createdAt: 'desc',
       },
     });
+
+    return Promise.all(
+      tickets.map(async (ticket) => ({
+        ...ticket,
+        qrCodeImage: ticket.qrCode
+          ? await this.generateQrCodeDataUrl(ticket.qrCode)
+          : null,
+      })),
+    );
   }
 
   async verifyTicket(qrCode: string) {
@@ -222,7 +266,12 @@ export class TicketsService {
       throw new NotFoundException(`Квиток з QR-кодом "${qrCode}" не знайдено`);
     }
 
-    return ticket;
+    return {
+      ...ticket,
+      qrCodeImage: ticket.qrCode
+        ? await this.generateQrCodeDataUrl(ticket.qrCode)
+        : null,
+    };
   }
 }
 

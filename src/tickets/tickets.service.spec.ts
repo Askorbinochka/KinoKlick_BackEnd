@@ -275,7 +275,10 @@ describe('TicketsService', () => {
 
   describe('getMyTickets', () => {
     it('повинен повернути квитки користувача', async () => {
-      const mockTickets = [{ id: 't1' }, { id: 't2' }];
+      const mockTickets = [
+        { id: 't1', qrCode: 'qr-1' },
+        { id: 't2', qrCode: 'qr-2' },
+      ];
       prisma.ticket.findMany.mockResolvedValue(mockTickets);
 
       const result = await service.getMyTickets('user-1');
@@ -285,7 +288,8 @@ describe('TicketsService', () => {
         include: expect.any(Object),
         orderBy: { createdAt: 'desc' },
       });
-      expect(result).toEqual(mockTickets);
+      expect(result).toHaveLength(2);
+      expect(result[0].qrCodeImage).toContain('data:image/png;base64,');
     });
   });
 
@@ -300,13 +304,31 @@ describe('TicketsService', () => {
         where: { qrCode: 'valid-qr' },
         include: expect.any(Object),
       });
-      expect(result).toEqual(mockTicket);
+      expect(result.id).toBe('t1');
+      expect(result.qrCodeImage).toContain('data:image/png;base64,');
     });
 
     it('повинен викинути NotFoundException, якщо квиток за QR-кодом не знайдено', async () => {
       prisma.ticket.findUnique.mockResolvedValue(null);
 
       await expect(service.verifyTicket('fake-qr')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('getTicketQrCodeBuffer', () => {
+    it('повинен повернути буфер зображення QR-коду', async () => {
+      prisma.ticket.findUnique.mockResolvedValue({ id: 't1', qrCode: 'test-qr' });
+
+      const buffer = await service.getTicketQrCodeBuffer('t1');
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+    });
+
+    it('повинен викинути NotFoundException якщо квиток не знайдено', async () => {
+      prisma.ticket.findUnique.mockResolvedValue(null);
+
+      await expect(service.getTicketQrCodeBuffer('fake')).rejects.toThrow(
         NotFoundException,
       );
     });

@@ -12,6 +12,7 @@ describe('TicketsController', () => {
     confirmBooking: ReturnType<typeof vi.fn>;
     getMyTickets: ReturnType<typeof vi.fn>;
     verifyTicket: ReturnType<typeof vi.fn>;
+    getTicketQrCodeBuffer: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -20,6 +21,7 @@ describe('TicketsController', () => {
       confirmBooking: vi.fn(),
       getMyTickets: vi.fn(),
       verifyTicket: vi.fn(),
+      getTicketQrCodeBuffer: vi.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -79,6 +81,22 @@ describe('TicketsController', () => {
 
     expect(service.verifyTicket).toHaveBeenCalledWith('qr-123');
     expect(result).toEqual(mockTicket);
+  });
+
+  it('getTicketQrCode повинен віддавати PNG буфер у відповідь', async () => {
+    const fakeBuffer = Buffer.from('fake-png');
+    service.getTicketQrCodeBuffer.mockResolvedValue(fakeBuffer);
+
+    const mockRes = {
+      setHeader: vi.fn(),
+      end: vi.fn(),
+    } as any;
+
+    await controller.getTicketQrCode('t1', mockRes);
+
+    expect(service.getTicketQrCodeBuffer).toHaveBeenCalledWith('t1');
+    expect(mockRes.setHeader).toHaveBeenCalledWith('Content-Type', 'image/png');
+    expect(mockRes.end).toHaveBeenCalledWith(fakeBuffer);
   });
 });
 
