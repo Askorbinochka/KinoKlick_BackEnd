@@ -12,6 +12,7 @@ describe('TicketsController', () => {
     confirmBooking: ReturnType<typeof vi.fn>;
     getMyTickets: ReturnType<typeof vi.fn>;
     verifyTicket: ReturnType<typeof vi.fn>;
+    getTicketQrCodeBuffer: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
