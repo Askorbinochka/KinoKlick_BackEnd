@@ -9,6 +9,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
@@ -17,6 +18,7 @@ import { CreateMovieDto } from './dto/create-movie.dto.js';
 import { UpdateMovieDto } from './dto/update-movie.dto.js';
 import { MoviesService } from './movies.service.js';
 
+@ApiTags('movies')
 @Controller('movies')
 export class MoviesController {
   constructor(private readonly moviesService: MoviesService) {}
@@ -29,6 +31,8 @@ export class MoviesController {
   }
 
   @Get()
+  @ApiQuery({ name: 'genre', required: false, description: 'Фільтр за жанром' })
+  @ApiQuery({ name: 'search', required: false, description: 'Пошук за назвою або описом' })
   findAll(@Query('genre') genre?: string, @Query('search') search?: string) {
     return this.moviesService.findAll({ genre, search });
   }
