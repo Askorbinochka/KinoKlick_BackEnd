@@ -5,13 +5,17 @@ import {
   Param,
   Post,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { ApiProduces, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { ConfirmBookingDto } from './dto/confirm-booking.dto.js';
 import { CreateBookingDto } from './dto/create-booking.dto.js';
 import { TicketsService } from './tickets.service.js';
 
+@ApiTags('tickets')
 @Controller('tickets')
 export class TicketsController {
   constructor(private readonly ticketsService: TicketsService) {}
@@ -34,6 +38,14 @@ export class TicketsController {
   @UseGuards(JwtAuthGuard)
   getMyTickets(@Req() req: any) {
     return this.ticketsService.getMyTickets(req.user.id);
+  }
+
+  @Get(':id/qr-code')
+  @ApiProduces('image/png')
+  async getTicketQrCode(@Param('id') id: string, @Res() res: Response) {
+    const buffer = await this.ticketsService.getTicketQrCodeBuffer(id);
+    res.setHeader('Content-Type', 'image/png');
+    res.end(buffer);
   }
 
   @Get('verify/:qrCode')
