@@ -204,7 +204,7 @@ async function main() {
       description:
         'Грю та його родина стикаються з новим ворогом Максимом Ле Малем і змушені тікати, тоді як міньйони отримують нові суперсили.',
       posterUrl:
-        'https://image.tmdb.org/t/p/original/wWba3TaojhK7NdycRhoQpsG0cnH.jpg',
+        'https://image.tmdb.org/t/p/original/wWba3TaojhK7NdycRhoQpsG0FaH.jpg',
       genres: ['Мультфільм', 'Комедія', 'Сімейний'],
       duration: 94,
       rating: 7.2,
@@ -350,3 +350,4 @@ main()
     await prisma.$disconnect();
     await pool.end();
   });
+
