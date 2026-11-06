@@ -2,11 +2,22 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { RedisService } from '../redis/redis.service.js';
 import { CreateBookingDto } from './dto/create-booking.dto.js';
+import { TicketsGateway } from './tickets.gateway.js';
 import { TicketsService } from './tickets.service.js';
 
 describe('TicketsService', () => {
   let service: TicketsService;
+  let redis: {
+    lockSeats: ReturnType<typeof vi.fn>;
+    releaseSeats: ReturnType<typeof vi.fn>;
+  };
+  let gateway: {
+    notifySeatsLocked: ReturnType<typeof vi.fn>;
+    notifySeatsReleased: ReturnType<typeof vi.fn>;
+    notifySeatsSold: ReturnType<typeof vi.fn>;
+  };
   let prisma: {
     session: { findUnique: ReturnType<typeof vi.fn> };
     seat: { findMany: ReturnType<typeof vi.fn> };
@@ -26,6 +37,17 @@ describe('TicketsService', () => {
   };
 
   beforeEach(async () => {
+    redis = {
+      lockSeats: vi.fn().mockResolvedValue(true),
+      releaseSeats: vi.fn().mockResolvedValue(undefined),
+    };
+
+    gateway = {
+      notifySeatsLocked: vi.fn(),
+      notifySeatsReleased: vi.fn(),
+      notifySeatsSold: vi.fn(),
+    };
+
     prisma = {
       session: { findUnique: vi.fn() },
       seat: { findMany: vi.fn() },
@@ -42,6 +64,14 @@ describe('TicketsService', () => {
         {
           provide: PrismaService,
           useValue: prisma,
+        },
+        {
+          provide: RedisService,
+          useValue: redis,
+        },
+        {
+          provide: TicketsGateway,
+          useValue: gateway,
         },
       ],
     }).compile();

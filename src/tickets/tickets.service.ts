@@ -6,13 +6,18 @@ import {
 import { randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { RedisService } from '../redis/redis.service.js';
 import { ConfirmBookingDto } from './dto/confirm-booking.dto.js';
 import { CreateBookingDto } from './dto/create-booking.dto.js';
-
+import { TicketsGateway } from './tickets.gateway.js';
 
 @Injectable()
 export class TicketsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+    private readonly gateway: TicketsGateway,
+  ) {}
 
   async bookSeats(dto: CreateBookingDto, userId?: string) {
     const session = await this.prisma.session.findUnique({
@@ -66,9 +71,23 @@ export class TicketsService {
       );
     }
 
+    // Атомарне блокування в Redis (TTL 15 хвилин = 900 сек)
+    const lockAcquired = await this.redis.lockSeats(
+      dto.sessionId,
+      dto.seatIds,
+      userId ?? 'guest',
+      900,
+    );
+
+    if (!lockAcquired) {
+      throw new BadRequestException(
+        'Одне або більше обраних місць вже заблоковані іншим користувачем',
+      );
+    }
+
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
-    return this.prisma.booking.create({
+    const booking = await this.prisma.booking.create({
       data: {
         sessionId: dto.sessionId,
         userId,
@@ -92,6 +111,11 @@ export class TicketsService {
         },
       },
     });
+
+    // Сповіщення в WebSocket кімнату сеансу: місця заблоковано в реальному часі!
+    this.gateway.notifySeatsLocked(dto.sessionId, dto.seatIds);
+
+    return booking;
   }
 
   async confirmBooking(
@@ -124,6 +148,11 @@ export class TicketsService {
         where: { id: bookingId },
         data: { status: 'EXPIRED' },
       });
+
+      const seatIds = booking.seats.map((s) => s.seatId);
+      await this.redis.releaseSeats(booking.sessionId, seatIds);
+      this.gateway.notifySeatsReleased(booking.sessionId, seatIds);
+
       throw new BadRequestException('Час дії бронювання минув');
     }
 
@@ -167,6 +196,10 @@ export class TicketsService {
         where: { id: booking.id },
         data: { status: 'CONFIRMED' },
       });
+
+      const seatIds = booking.seats.map((s) => s.seatId);
+      await this.redis.releaseSeats(booking.sessionId, seatIds);
+      this.gateway.notifySeatsSold(booking.sessionId, seatIds);
 
       const ticketsWithQr = await Promise.all(
         tickets.map(async (t) => ({
