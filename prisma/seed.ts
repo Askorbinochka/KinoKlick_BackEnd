@@ -1,9 +1,9 @@
-import { PrismaClient, Role, SeatType } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import pg from 'pg';
+import { PrismaClient, Role, SeatType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
+import pg from 'pg';
 
 const { Pool } = pg;
 const connectionString = process.env.DATABASE_URL;
@@ -16,16 +16,18 @@ async function main() {
 
   // Очищення старих даних у правильному порядку
   console.log('🧹 Очищення старих даних...');
-  await prisma.ticket.deleteMany();
-  await prisma.order.deleteMany();
-  await prisma.bookingSeat.deleteMany();
-  await prisma.booking.deleteMany();
-  await prisma.session.deleteMany();
-  await prisma.seat.deleteMany();
-  await prisma.hall.deleteMany();
-  await prisma.cinema.deleteMany();
-  await prisma.movie.deleteMany();
-  await prisma.user.deleteMany();
+  await prisma.$transaction([
+    prisma.ticket.deleteMany(),
+    prisma.order.deleteMany(),
+    prisma.bookingSeat.deleteMany(),
+    prisma.booking.deleteMany(),
+    prisma.session.deleteMany(),
+    prisma.seat.deleteMany(),
+    prisma.hall.deleteMany(),
+    prisma.cinema.deleteMany(),
+    prisma.movie.deleteMany(),
+    prisma.user.deleteMany(),
+  ]);
 
   // 1. Створення користувачів
   console.log('👤 Створення тестових користувачів...');
@@ -350,4 +352,3 @@ main()
     await prisma.$disconnect();
     await pool.end();
   });
-
