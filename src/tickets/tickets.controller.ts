@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -168,5 +169,41 @@ export class TicketsController {
   })
   verifyTicket(@Param('qrCode') qrCode: string) {
     return this.ticketsService.verifyTicket(qrCode);
+  }
+
+  @Delete('booking/:bookingId')
+  @ApiOperation({
+    summary: 'Скасувати активне бронювання вручну',
+    description:
+      'Скасовує бронювання зі статусом PENDING, змінює статус на CANCELLED та миттєво звільняє заблоковані місця',
+  })
+  @ApiParam({ name: 'bookingId', description: 'UUID бронювання' })
+  @ApiResponse({
+    status: 200,
+    description: 'Бронювання скасовано, місця звільнено',
+  })
+  @ApiResponse({ status: 400, description: 'Бронювання не в статусі PENDING' })
+  @ApiResponse({ status: 404, description: 'Бронювання не знайдено' })
+  cancelBooking(@Param('bookingId') bookingId: string, @Req() req: any) {
+    return this.ticketsService.cancelBooking(bookingId, req.user?.id);
+  }
+
+  @Post(':id/refund')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Повернення придбаного квитка',
+    description:
+      'Анулює квиток, повертає кошти (змінює статус замовлення на REFUNDED) та звільняє місце в залі, якщо сеанс ще не розпочався',
+  })
+  @ApiParam({ name: 'id', description: 'UUID квитка' })
+  @ApiResponse({ status: 200, description: 'Квиток успішно повернуто' })
+  @ApiResponse({
+    status: 400,
+    description: 'Сеанс уже розпочався або квиток не належить користувачу',
+  })
+  @ApiResponse({ status: 404, description: 'Квиток не знайдено' })
+  refundTicket(@Param('id') id: string, @Req() req: any) {
+    return this.ticketsService.refundTicket(id, req.user.id);
   }
 }

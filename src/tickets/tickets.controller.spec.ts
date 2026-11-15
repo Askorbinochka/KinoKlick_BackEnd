@@ -13,6 +13,8 @@ describe('TicketsController', () => {
     getMyTickets: ReturnType<typeof vi.fn>;
     verifyTicket: ReturnType<typeof vi.fn>;
     getTicketQrCodeBuffer: ReturnType<typeof vi.fn>;
+    cancelBooking: ReturnType<typeof vi.fn>;
+    refundTicket: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -22,6 +24,8 @@ describe('TicketsController', () => {
       getMyTickets: vi.fn(),
       verifyTicket: vi.fn(),
       getTicketQrCodeBuffer: vi.fn(),
+      cancelBooking: vi.fn(),
+      refundTicket: vi.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -97,6 +101,24 @@ describe('TicketsController', () => {
     expect(service.getTicketQrCodeBuffer).toHaveBeenCalledWith('t1');
     expect(mockRes.setHeader).toHaveBeenCalledWith('Content-Type', 'image/png');
     expect(mockRes.end).toHaveBeenCalledWith(fakeBuffer);
+  });
+
+  it('cancelBooking повинен викликати ticketsService.cancelBooking', async () => {
+    service.cancelBooking.mockResolvedValue({ success: true });
+
+    const result = await controller.cancelBooking('b1', { user: { id: 'u1' } });
+
+    expect(service.cancelBooking).toHaveBeenCalledWith('b1', 'u1');
+    expect(result).toEqual({ success: true });
+  });
+
+  it('refundTicket повинен викликати ticketsService.refundTicket', async () => {
+    service.refundTicket.mockResolvedValue({ success: true });
+
+    const result = await controller.refundTicket('t1', { user: { id: 'u1' } });
+
+    expect(service.refundTicket).toHaveBeenCalledWith('t1', 'u1');
+    expect(result).toEqual({ success: true });
   });
 });
 
