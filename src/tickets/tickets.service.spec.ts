@@ -25,14 +25,20 @@ describe('TicketsService', () => {
       findFirst: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
       findUnique: ReturnType<typeof vi.fn>;
+      delete: ReturnType<typeof vi.fn>;
+      count: ReturnType<typeof vi.fn>;
     };
     bookingSeat: { findFirst: ReturnType<typeof vi.fn> };
     booking: {
       create: ReturnType<typeof vi.fn>;
+      findMany: ReturnType<typeof vi.fn>;
       findUnique: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
     };
-    order: { create: ReturnType<typeof vi.fn> };
+    order: {
+      create: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+    };
     $transaction: ReturnType<typeof vi.fn>;
   };
 
@@ -51,10 +57,21 @@ describe('TicketsService', () => {
     prisma = {
       session: { findUnique: vi.fn() },
       seat: { findMany: vi.fn() },
-      ticket: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
+      ticket: {
+        findFirst: vi.fn(),
+        findMany: vi.fn(),
+        findUnique: vi.fn(),
+        delete: vi.fn(),
+        count: vi.fn(),
+      },
       bookingSeat: { findFirst: vi.fn() },
-      booking: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-      order: { create: vi.fn() },
+      booking: {
+        create: vi.fn(),
+        findMany: vi.fn(),
+        findUnique: vi.fn(),
+        update: vi.fn(),
+      },
+      order: { create: vi.fn(), update: vi.fn() },
       $transaction: vi.fn(),
     };
 
@@ -359,6 +376,153 @@ describe('TicketsService', () => {
       prisma.ticket.findUnique.mockResolvedValue(null);
 
       await expect(service.getTicketQrCodeBuffer('fake')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('handleExpiredBookings', () => {
+    it('повинен знайти прострочені бронювання, оновити статус на EXPIRED та звільнити місця', async () => {
+      const expiredBookings = [
+        {
+          id: 'b1',
+          sessionId: 's1',
+          seats: [{ seatId: 'seat-1' }, { seatId: 'seat-2' }],
+        },
+      ];
+      prisma.booking.findMany.mockResolvedValue(expiredBookings);
+      prisma.booking.update.mockResolvedValue({});
+
+      await service.handleExpiredBookings();
+
+      expect(prisma.booking.update).toHaveBeenCalledWith({
+        where: { id: 'b1' },
+        data: { status: 'EXPIRED' },
+      });
+      expect(redis.releaseSeats).toHaveBeenCalledWith('s1', [
+        'seat-1',
+        'seat-2',
+      ]);
+      expect(gateway.notifySeatsReleased).toHaveBeenCalledWith('s1', [
+        'seat-1',
+        'seat-2',
+      ]);
+    });
+
+    it('не повинен виконувати оновлення якщо прострочених бронювань немає', async () => {
+      prisma.booking.findMany.mockResolvedValue([]);
+
+      await service.handleExpiredBookings();
+
+      expect(prisma.booking.update).not.toHaveBeenCalled();
+      expect(redis.releaseSeats).not.toHaveBeenCalled();
+      expect(gateway.notifySeatsReleased).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cancelBooking', () => {
+    it('повинен успішно скасувати бронювання та звільнити місця', async () => {
+      prisma.booking.findUnique.mockResolvedValue({
+        id: 'b1',
+        sessionId: 's1',
+        status: 'PENDING',
+        userId: 'user-1',
+        seats: [{ seatId: 'seat-1' }],
+      });
+      prisma.booking.update.mockResolvedValue({});
+
+      const result = await service.cancelBooking('b1', 'user-1');
+
+      expect(result.success).toBe(true);
+      expect(prisma.booking.update).toHaveBeenCalledWith({
+        where: { id: 'b1' },
+        data: { status: 'CANCELLED' },
+      });
+      expect(redis.releaseSeats).toHaveBeenCalledWith('s1', ['seat-1']);
+      expect(gateway.notifySeatsReleased).toHaveBeenCalledWith('s1', ['seat-1']);
+    });
+
+    it('повинен викинути NotFoundException якщо бронювання не існує', async () => {
+      prisma.booking.findUnique.mockResolvedValue(null);
+
+      await expect(service.cancelBooking('fake')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('повинен викинути BadRequestException якщо статус не PENDING', async () => {
+      prisma.booking.findUnique.mockResolvedValue({
+        id: 'b1',
+        status: 'CONFIRMED',
+        seats: [],
+      });
+
+      await expect(service.cancelBooking('b1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('повинен викинути BadRequestException якщо бронювання належить іншому користувачу', async () => {
+      prisma.booking.findUnique.mockResolvedValue({
+        id: 'b1',
+        status: 'PENDING',
+        userId: 'owner-id',
+        seats: [],
+      });
+
+      await expect(service.cancelBooking('b1', 'intruder-id')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('refundTicket', () => {
+    it('повинен успішно повернути квиток, якщо сеанс ще не розпочався', async () => {
+      const futureDate = new Date(Date.now() + 60 * 60 * 1000);
+      prisma.ticket.findUnique.mockResolvedValue({
+        id: 't1',
+        seatId: 'seat-1',
+        sessionId: 's1',
+        orderId: 'o1',
+        session: { startTime: futureDate },
+        order: { userId: 'user-1' },
+      });
+
+      prisma.$transaction.mockImplementation(async (cb) => {
+        return cb({
+          ticket: {
+            delete: vi.fn().mockResolvedValue({}),
+            count: vi.fn().mockResolvedValue(0),
+          },
+          order: {
+            update: vi.fn().mockResolvedValue({}),
+          },
+        });
+      });
+
+      const result = await service.refundTicket('t1', 'user-1');
+
+      expect(result.success).toBe(true);
+      expect(gateway.notifySeatsReleased).toHaveBeenCalledWith('s1', ['seat-1']);
+    });
+
+    it('повинен викинути BadRequestException якщо сеанс вже розпочався', async () => {
+      const pastDate = new Date(Date.now() - 1000);
+      prisma.ticket.findUnique.mockResolvedValue({
+        id: 't1',
+        session: { startTime: pastDate },
+        order: { userId: 'user-1' },
+      });
+
+      await expect(service.refundTicket('t1', 'user-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('повинен викинути NotFoundException якщо квиток не знайдено', async () => {
+      prisma.ticket.findUnique.mockResolvedValue(null);
+
+      await expect(service.refundTicket('fake')).rejects.toThrow(
         NotFoundException,
       );
     });

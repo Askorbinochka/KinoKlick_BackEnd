@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { randomUUID } from 'node:crypto';
 import QRCode from 'qrcode';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -13,11 +15,58 @@ import { TicketsGateway } from './tickets.gateway.js';
 
 @Injectable()
 export class TicketsService {
+  private readonly logger = new Logger(TicketsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly gateway: TicketsGateway,
   ) {}
+
+  @Cron(CronExpression.EVERY_MINUTE)
+  async handleExpiredBookings() {
+    const now = new Date();
+    const expiredBookings = await this.prisma.booking.findMany({
+      where: {
+        status: 'PENDING',
+        expiresAt: { lt: now },
+      },
+      include: {
+        seats: true,
+      },
+    });
+
+    if (expiredBookings.length === 0) {
+      return;
+    }
+
+    this.logger.log(
+      `Знайдено ${expiredBookings.length} прострочених бронювань для скасування`,
+    );
+
+    for (const booking of expiredBookings) {
+      try {
+        await this.prisma.booking.update({
+          where: { id: booking.id },
+          data: { status: 'EXPIRED' },
+        });
+
+        const seatIds = booking.seats.map((s) => s.seatId);
+        if (seatIds.length > 0) {
+          await this.redis.releaseSeats(booking.sessionId, seatIds);
+          this.gateway.notifySeatsReleased(booking.sessionId, seatIds);
+        }
+
+        this.logger.log(
+          `Бронювання ${booking.id} успішно переведено в статус EXPIRED та місця звільнено`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Помилка при скасуванні простроченого бронювання ${booking.id}: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
+  }
 
   async bookSeats(dto: CreateBookingDto, userId?: string) {
     const session = await this.prisma.session.findUnique({
@@ -304,6 +353,93 @@ export class TicketsService {
       qrCodeImage: ticket.qrCode
         ? await this.generateQrCodeDataUrl(ticket.qrCode)
         : null,
+    };
+  }
+
+  async cancelBooking(bookingId: string, userId?: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { seats: true },
+    });
+
+    if (!booking) {
+      throw new NotFoundException(`Бронювання з id "${bookingId}" не знайдено`);
+    }
+
+    if (booking.status !== 'PENDING') {
+      throw new BadRequestException(
+        `Неможливо скасувати бронювання зі статусом ${booking.status}`,
+      );
+    }
+
+    if (userId && booking.userId && booking.userId !== userId) {
+      throw new BadRequestException('Ви не маєте доступу до цього бронювання');
+    }
+
+    await this.prisma.booking.update({
+      where: { id: bookingId },
+      data: { status: 'CANCELLED' },
+    });
+
+    const seatIds = booking.seats.map((s) => s.seatId);
+    if (seatIds.length > 0) {
+      await this.redis.releaseSeats(booking.sessionId, seatIds);
+      this.gateway.notifySeatsReleased(booking.sessionId, seatIds);
+    }
+
+    return {
+      success: true,
+      message: 'Бронювання успішно скасовано',
+      bookingId,
+    };
+  }
+
+  async refundTicket(ticketId: string, userId?: string) {
+    const ticket = await this.prisma.ticket.findUnique({
+      where: { id: ticketId },
+      include: {
+        session: true,
+        order: true,
+      },
+    });
+
+    if (!ticket) {
+      throw new NotFoundException(`Квиток з id "${ticketId}" не знайдено`);
+    }
+
+    if (userId && ticket.order.userId && ticket.order.userId !== userId) {
+      throw new BadRequestException('Ви не маєте доступу до цього квитка');
+    }
+
+    if (new Date() >= ticket.session.startTime) {
+      throw new BadRequestException(
+        'Неможливо повернути квиток на сеанс, який вже розпочався',
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.ticket.delete({
+        where: { id: ticketId },
+      });
+
+      const remainingTickets = await tx.ticket.count({
+        where: { orderId: ticket.orderId },
+      });
+
+      if (remainingTickets === 0) {
+        await tx.order.update({
+          where: { id: ticket.orderId },
+          data: { status: 'REFUNDED' },
+        });
+      }
+    });
+
+    this.gateway.notifySeatsReleased(ticket.sessionId, [ticket.seatId]);
+
+    return {
+      success: true,
+      message: 'Квиток успішно повернуто',
+      ticketId,
     };
   }
 }

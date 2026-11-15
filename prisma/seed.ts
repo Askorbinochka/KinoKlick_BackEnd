@@ -84,6 +84,14 @@ async function main() {
     },
   });
 
+  const cinemaKolomyia = await prisma.cinema.create({
+    data: {
+      name: 'Cinoclick Kolomyia Cinema',
+      city: 'Коломия',
+      address: 'вул. Чорновола, 28 (ТРЦ "Прут")',
+    },
+  });
+
   // Зал 1 у Києві (5 рядів по 8 місць)
   const hallKyivImax = await prisma.hall.create({
     data: {
@@ -146,6 +154,27 @@ async function main() {
     }
   }
   await prisma.seat.createMany({ data: lvivSeats });
+
+  // Зал у Коломиї (5 рядів по 8 місць)
+  const hallKolomyia = await prisma.hall.create({
+    data: {
+      name: 'Зал 1 — Premier Cinema',
+      cinemaId: cinemaKolomyia.id,
+    },
+  });
+
+  const kolomyiaSeats = [];
+  for (let row = 1; row <= 5; row++) {
+    for (let num = 1; num <= 8; num++) {
+      kolomyiaSeats.push({
+        hallId: hallKolomyia.id,
+        row,
+        number: num,
+        type: row === 5 ? SeatType.VIP : SeatType.STANDARD,
+      });
+    }
+  }
+  await prisma.seat.createMany({ data: kolomyiaSeats });
 
   // 3. Створення фільмів
   console.log('🎬 Додавання фільмів...');
@@ -217,60 +246,64 @@ async function main() {
     },
   });
 
-  // 4. Створення сеансів
-  console.log('⏰ Створення сеансів...');
-  const now = new Date();
+  // 4. Створення сеансів на цілий тиждень (8 днів)
+  console.log('⏰ Створення сеансів на цілий тиждень...');
+  const allMovies = [
+    movieDune,
+    movieOppenheimer,
+    movieInterstellar,
+    movieDespicable,
+  ];
+  const allHalls = [hallKyivImax, hallKyivDolby, hallLvivPrime, hallKolomyia];
 
-  const session1Time = new Date(now);
-  session1Time.setHours(18, 0, 0, 0);
+  const timeSlots = [
+    { hour: 10, minute: 30, basePrice: 150 },
+    { hour: 13, minute: 15, basePrice: 170 },
+    { hour: 16, minute: 0, basePrice: 190 },
+    { hour: 18, minute: 45, basePrice: 210 },
+    { hour: 21, minute: 30, basePrice: 220 },
+  ];
 
-  const session2Time = new Date(now);
-  session2Time.setHours(21, 15, 0, 0);
+  let session1: any = null;
 
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  for (let dayOffset = 0; dayOffset <= 7; dayOffset++) {
+    for (let hIndex = 0; hIndex < allHalls.length; hIndex++) {
+      const hall = allHalls[hIndex];
 
-  const session3Time = new Date(tomorrow);
-  session3Time.setHours(15, 30, 0, 0);
+      for (let sIndex = 0; sIndex < timeSlots.length; sIndex++) {
+        const slot = timeSlots[sIndex];
+        const sessionDate = new Date();
+        sessionDate.setDate(sessionDate.getDate() + dayOffset);
+        sessionDate.setHours(slot.hour, slot.minute, 0, 0);
 
-  const session4Time = new Date(tomorrow);
-  session4Time.setHours(19, 0, 0, 0);
+        // Ротація фільмів між залами та слотами
+        const movie =
+          allMovies[(dayOffset + hIndex + sIndex) % allMovies.length];
 
-  const session1 = await prisma.session.create({
-    data: {
-      startTime: session1Time,
-      movieId: movieDune.id,
-      hallId: hallKyivImax.id,
-      price: 200,
-    },
-  });
+        const createdSession = await prisma.session.create({
+          data: {
+            startTime: sessionDate,
+            movieId: movie.id,
+            hallId: hall.id,
+            price: slot.basePrice,
+          },
+        });
 
-  const session2 = await prisma.session.create({
-    data: {
-      startTime: session2Time,
-      movieId: movieOppenheimer.id,
-      hallId: hallKyivDolby.id,
-      price: 180,
-    },
-  });
+        // Запам'ятаємо вечірній сеанс на сьогодні в IMAX для створення тестових квитків
+        if (
+          dayOffset === 0 &&
+          hall.id === hallKyivImax.id &&
+          slot.hour === 18
+        ) {
+          session1 = createdSession;
+        }
+      }
+    }
+  }
 
-  await prisma.session.create({
-    data: {
-      startTime: session3Time,
-      movieId: movieDespicable.id,
-      hallId: hallKyivImax.id,
-      price: 150,
-    },
-  });
-
-  await prisma.session.create({
-    data: {
-      startTime: session4Time,
-      movieId: movieInterstellar.id,
-      hallId: hallLvivPrime.id,
-      price: 190,
-    },
-  });
+  if (!session1) {
+    session1 = await prisma.session.findFirstOrThrow();
+  }
 
   // 5. Тестові зайняті місця для сеансу 1 (щоб було видно SOLD та BOOKED)
   console.log('🎟️ Створення тестових бронювань та куплених квитків...');
