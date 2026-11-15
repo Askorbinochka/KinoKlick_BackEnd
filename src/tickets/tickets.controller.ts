@@ -19,6 +19,7 @@ import {
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
+import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard.js';
 import { ConfirmBookingDto } from './dto/confirm-booking.dto.js';
 import { CreateBookingDto } from './dto/create-booking.dto.js';
 import { TicketsService } from './tickets.service.js';
@@ -29,6 +30,8 @@ export class TicketsController {
   constructor(private readonly ticketsService: TicketsService) {}
 
   @Post('book')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Крок 1: Тимчасово забронювати місця на 15 хвилин',
     description:
@@ -59,6 +62,8 @@ export class TicketsController {
   }
 
   @Post('confirm/:bookingId')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Крок 2: Оплата та підтвердження замовлення',
     description:
@@ -172,6 +177,8 @@ export class TicketsController {
   }
 
   @Delete('booking/:bookingId')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Скасувати активне бронювання вручну',
     description:
