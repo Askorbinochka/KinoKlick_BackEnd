@@ -213,10 +213,21 @@ export class TicketsService {
       return { seatId: seat.id, price };
     });
 
+    let targetUserId = userId ?? booking.userId;
+    if (!targetUserId && dto?.customerEmail) {
+      const foundUser = await this.prisma.user.findUnique({
+        where: { email: dto.customerEmail },
+        select: { id: true },
+      });
+      if (foundUser) {
+        targetUserId = foundUser.id;
+      }
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.order.create({
         data: {
-          userId: userId ?? booking.userId,
+          userId: targetUserId,
           bookingId: booking.id,
           totalAmount,
           status: 'PAID',
@@ -243,7 +254,10 @@ export class TicketsService {
 
       await tx.booking.update({
         where: { id: booking.id },
-        data: { status: 'CONFIRMED' },
+        data: {
+          status: 'CONFIRMED',
+          ...(targetUserId && !booking.userId ? { userId: targetUserId } : {}),
+        },
       });
 
       const seatIds = booking.seats.map((s) => s.seatId);
